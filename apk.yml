@@ -1,0 +1,68 @@
+name: Build APK from zip
+
+# Builds an Android APK (for Samsung and other Android phones) from the newest app zip in this repo.
+# Free on public repos. Result: Actions → this run → Artifacts → HabibiGains-apk.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: '1'
+      GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g" -Dorg.gradle.daemon=false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+
+      - name: Unzip project
+        run: |
+          ZIP=$(git log --format= --name-only --diff-filter=AM -- '*.zip' | head -n 1)
+          [ -f "$ZIP" ] || ZIP=$(ls *.zip | head -n 1)
+          echo "Using $ZIP"
+          mkdir -p src && unzip -q -o "$ZIP" -d src
+          APPDIR=$(dirname "$(find src -name package.json -not -path '*/node_modules/*' | head -n 1)")
+          echo "APPDIR=$APPDIR" >> $GITHUB_ENV
+
+      - name: Install
+        working-directory: ${{ env.APPDIR }}
+        run: |
+          node -e "const f='base-config.json',c=require('./'+f);c.expo=c.expo||c;const p=(c.expo.plugins=c.expo.plugins||[]);for(const n of ['expo-image','expo-sharing','expo-status-bar','expo-web-browser']) if(!p.some(x=>(Array.isArray(x)?x[0]:x)===n)) p.push(n);require('fs').writeFileSync(f,JSON.stringify(c,null,2))" || true
+          npm install --legacy-peer-deps
+          npx expo install --fix -- --legacy-peer-deps || true
+
+      - name: Prebuild Android
+        working-directory: ${{ env.APPDIR }}
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build APK
+        working-directory: ${{ env.APPDIR }}/android
+        run: |
+          chmod +x gradlew
+          # arm64 only: every Samsung from the last ~7 years. Signed with the test key (fine for sideloading).
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          APK=$(find "$APPDIR/android/app/build/outputs/apk/release" -name '*.apk' | head -n 1)
+          [ -f "$APK" ] || { echo "❌ No APK was produced"; exit 1; }
+          cp "$APK" HabibiGains.apk
+          ls -lh HabibiGains.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HabibiGains-apk
+          path: HabibiGains.apk
+          retention-days: 14
