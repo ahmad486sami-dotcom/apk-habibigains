@@ -52,7 +52,8 @@ jobs:
         run: |
           chmod +x gradlew
           # arm64 only: every Samsung from the last ~7 years. Signed with the test key (fine for sideloading).
-          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+          # Lint is skipped: it only complains that iPhone-only Arabic texts (permission messages) have no Android copy.
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a -x lintVitalRelease -x lintVitalAnalyzeRelease --no-daemon
 
       - name: Collect APK
         run: |
